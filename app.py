@@ -772,9 +772,6 @@ class APIMaster:
 
     @classmethod
     def init(cls):
-        more_ids = ["100068","100069","100070","100071","100072"]
-        for i, api_id in enumerate(more_ids, start=len(cls.API_POOL)+1):
-            cls.API_POOL.append({"id": api_id, "key": cls.API_KEY, "label": f"API {i:02d} ⚡"})
         return len(cls.API_POOL)
 
 API_COUNT = APIMaster.init()
