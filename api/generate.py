@@ -17,7 +17,7 @@ import hashlib
 import base64
 import random
 import string
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 import warnings
 import urllib3
@@ -32,6 +32,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # ─── Flask App ─────────────────────────────────────────────────────────────
 app = Flask(__name__, static_folder='../static', static_url_path='/static')
 app.secret_key = os.environ.get('SECRET_KEY', 'Blinx-Slvffy')
+
+app.config.update(
+    SESSION_COOKIE_SECURE=True if os.environ.get('VERCEL') == '1' else False,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    PERMANENT_SESSION_LIFETIME=timedelta(days=7)
+)
+
+@app.before_request
+def make_session_permanent():
+    session.permanent = True
+
 
 # ─── Admin Password ────────────────────────────────────────────────────────
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'BLINXANDSLVFFY')
@@ -327,11 +339,49 @@ async def build_major_login_payload_proto(open_id, access_token):
     except:
         return None
 
+async def get_valid_proxy(session):
+    proxies = []
+    for _ in range(15):
+        p = IPRotator.get_rotating_proxy()
+        if p:
+            proxies.append(p)
+    if not proxies:
+        return None
+
+    async def test_one(proxy):
+        try:
+            # 1. Test Garena register (POST)
+            url_garena = "https://100067.connect.garena.com/api/v2/oauth/guest:register"
+            async with session.post(url_garena, data=b"", proxy=proxy, timeout=2.5) as resp:
+                if resp.status == 400:
+                    # 2. Test Polarbear major login (POST)
+                    url_pb = "https://loginbp.ggpolarbear.com/MajorLogin"
+                    async with session.post(url_pb, data=b"", proxy=proxy, timeout=2.5) as resp_pb:
+                        if resp_pb.status in [200, 400, 503]:
+                            return proxy
+        except:
+            pass
+        return None
+
+    tasks = [asyncio.create_task(test_one(p)) for p in proxies]
+    try:
+        results = await asyncio.gather(*tasks)
+        working = [r for r in results if r is not None]
+        if working:
+            return random.choice(working)
+    except:
+        pass
+    return None
+
 # ─── Core async account creator ───────────────────────────────────────────
 async def create_single_account(session_obj, region, name_prefix, account_index):
-    proxy = IPRotator.get_rotating_proxy()
+    proxy = await get_valid_proxy(session_obj)
     password = generate_password()
-    name = f"{name_prefix}_{account_index}"
+    # Ensure nickname length does not exceed Garena's 12-character limit
+    suffix = f"_{account_index}_{random.randint(100, 999)}"
+    max_prefix_len = 12 - len(suffix)
+    safe_prefix = name_prefix[:max_prefix_len] if max_prefix_len > 0 else "B"
+    name = safe_prefix + suffix
     timestamp = str(int(time.time() * 1000))
     headers_base = {
         "User-Agent": "GarenaMSDK/4.0.39(SM-A325M ;Android 13;en;HK;)",
@@ -357,9 +407,11 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
             ssl=False, timeout=aiohttp.ClientTimeout(total=15), proxy=proxy
         ) as resp:
             if resp.status != 200:
+                print(f"[{account_index}] Step 1 HTTP Failure: status={resp.status}, proxy={proxy}", file=sys.stderr)
                 return None
             reg_json = await resp.json()
             if reg_json.get("code") != 0:
+                print(f"[{account_index}] Step 1 Code Failure: json={reg_json}, proxy={proxy}", file=sys.stderr)
                 return None
             uid = reg_json['data']['uid']
 
@@ -377,9 +429,11 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
             ssl=False, timeout=aiohttp.ClientTimeout(total=15), proxy=proxy
         ) as resp:
             if resp.status != 200:
+                print(f"[{account_index}] Step 2 HTTP Failure: status={resp.status}, proxy={proxy}", file=sys.stderr)
                 return None
             tok_json = await resp.json()
             if tok_json.get("code") != 0:
+                print(f"[{account_index}] Step 2 Code Failure: json={tok_json}, proxy={proxy}", file=sys.stderr)
                 return None
             access_token = tok_json['data']['access_token']
             open_id = tok_json['data']['open_id']
@@ -404,7 +458,7 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
 
         headers_mreg = {
             "Accept-Encoding": "gzip", "Authorization": "Bearer",
-            "Connection": "Keep-Alive", "Content-Type": "application/x-www-form-urlencoded",
+            "Connection": "close", "Content-Type": "application/x-www-form-urlencoded",
             "Expect": "100-continue", "Host": "loginbp.ggpolarbear.com",
             "ReleaseVersion": "OB54",
             "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_I005DA Build/PI)",
@@ -417,16 +471,19 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
             ssl=False, timeout=aiohttp.ClientTimeout(total=15), proxy=proxy
         ) as resp:
             if resp.status != 200:
+                body = await resp.read()
+                print(f"[{account_index}] Step 3 HTTP Failure: status={resp.status}, proxy={proxy}, body={body}", file=sys.stderr)
                 return None
 
         # Step 4: Major Login
         final_payload = await build_major_login_payload_proto(open_id, access_token)
         if final_payload is None:
+            print(f"[{account_index}] Step 4 Build Payload Failure (proto/AES unavailable), proxy={proxy}", file=sys.stderr)
             return None
 
         headers_ml = {
             "Accept-Encoding": "gzip", "Authorization": "Bearer",
-            "Connection": "Keep-Alive", "Content-Type": "application/x-www-form-urlencoded",
+            "Connection": "close", "Content-Type": "application/x-www-form-urlencoded",
             "Expect": "100-continue", "Host": "loginbp.ggpolarbear.com",
             "ReleaseVersion": "OB54",
             "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_I005DA Build/PI)",
@@ -439,6 +496,8 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
             ssl=False, timeout=aiohttp.ClientTimeout(total=15), proxy=proxy
         ) as resp:
             if resp.status != 200:
+                body = await resp.read()
+                print(f"[{account_index}] Step 4 HTTP Failure: status={resp.status}, proxy={proxy}, body={body}", file=sys.stderr)
                 return None
             content = await resp.read()
             account_id = "N/A"
@@ -464,6 +523,7 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
                         account_id = decode_jwt_token(jwt_token)
 
             if account_id == "N/A":
+                print(f"[{account_index}] Step 4 Account ID not found in response, proxy={proxy}", file=sys.stderr)
                 return None
 
             return {
