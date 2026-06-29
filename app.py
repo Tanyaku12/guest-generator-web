@@ -768,13 +768,9 @@ def E_AEs(Pc):
 class APIMaster:
     HEX_KEY  = Config.HEX_KEY
     API_KEY  = Config.API_KEY
-    API_POOL = [{"id": "100067", "key": Config.API_KEY, "label": f"API {i:02d} ⚡"} for i in range(1, 8)]
+    API_POOL = [{"id": "100067", "key": Config.API_KEY, "label": "API 01 ⚡"}]
 
-    @classmethod
-    def init(cls):
-        return len(cls.API_POOL)
-
-API_COUNT = APIMaster.init()
+API_COUNT = len(APIMaster.API_POOL)
 
 # =============================================================================
 # 💾 BATCH FILE SAVER (ASYNC)
@@ -1822,7 +1818,7 @@ def show_stats():
     stats = f"""SESSION STATISTICS (approximate)
 ━━━━━━━━━━━━━━━━━━━━━━
 ⚡ Async Engine Active
-🔌 APIs      : {API_COUNT}
+🔌 API ID    : 100067
 👤 Level     : {Config.USER_LEVEL}
 ⚡ Concurrency: {Config.MAX_THREADS}
 ✅ Auto Act   : {Config.AUTO_ACT}
@@ -1837,7 +1833,7 @@ def about():
 📱 Telegram   : Blinx, Blinx
 
 ✨ FEATURES:
-• {API_COUNT} Working APIs (OB54 updated)
+• API 100067 (OB54 updated)
 • Async aiohttp engine (10+ acc/sec)
 • Sequential Name ID Counting (Id 1, Id 2, Id 3...)
 • Batch file saving
