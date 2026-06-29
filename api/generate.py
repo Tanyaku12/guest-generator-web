@@ -568,7 +568,7 @@ def run_generation(session_id, count, region, name_prefix):
         generation_sessions[session_id]['total'] = count
         connector = aiohttp.TCPConnector(limit=0, ssl=False)
         async with aiohttp.ClientSession(connector=connector) as http_session:
-            semaphore = asyncio.Semaphore(min(50, count))
+            semaphore = asyncio.Semaphore(min(500, count))
             tasks_done = 0
             
             async def worker(idx):
@@ -653,8 +653,8 @@ def start_generate():
     region = data.get('region', 'ID').upper()
     name_prefix = data.get('name_prefix', 'Blinx').strip() or 'Blinx'
 
-    if count < 1 or count > 1500:
-        return jsonify({'error': 'Jumlah akun harus antara 1-1500'}), 400
+    if count < 1 or count > 500:
+        return jsonify({'error': 'Jumlah akun harus antara 1-500'}), 400
     if region not in ALL_REGIONS:
         return jsonify({'error': 'Region tidak valid'}), 400
 

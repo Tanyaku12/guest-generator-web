@@ -283,7 +283,7 @@ $('countMinus').addEventListener('click', () => {
 
 $('countPlus').addEventListener('click', () => {
   const v = parseInt(accountCount.value) || 1;
-  accountCount.value = Math.min(1500, v + 1);
+  accountCount.value = Math.min(500, v + 1);
 });
 
 document.querySelectorAll('.preset-btn').forEach(btn => {
@@ -308,8 +308,8 @@ generateForm.addEventListener('submit', async e => {
   const region = state.selectedRegion;
   const prefix = namePrefix.value.trim() || 'Blinx';
 
-  if (count < 1 || count > 1500) {
-    toast('Jumlah akun harus 1-1500', 'error');
+  if (count < 1 || count > 500) {
+    toast('Jumlah akun harus 1-500', 'error');
     return;
   }
 
