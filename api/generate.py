@@ -52,6 +52,52 @@ ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'BLINXANDSLVFFY')
 generation_sessions = {}  # session_id -> {status, accounts, ...}
 generation_lock = threading.Lock()
 
+# ─── File-based Session Persistence ─────────────────────────────────────────
+SESSION_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'sessions')
+os.makedirs(SESSION_DIR, exist_ok=True)
+
+def cleanup_old_sessions():
+    try:
+        now = time.time()
+        for filename in os.listdir(SESSION_DIR):
+            if filename.endswith('.json'):
+                filepath = os.path.join(SESSION_DIR, filename)
+                # Hapus sesi yang berusia lebih dari 6 jam
+                if now - os.path.getmtime(filepath) > 6 * 3600:
+                    os.remove(filepath)
+    except Exception as e:
+        print(f"Error cleaning up old sessions: {e}", file=sys.stderr)
+
+def get_session_filepath(session_id):
+    safe_id = "".join([c for c in session_id if c.isalnum() or c in '_-'])
+    return os.path.join(SESSION_DIR, f"{safe_id}.json")
+
+def load_session(session_id):
+    filepath = get_session_filepath(session_id)
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading session from file: {e}", file=sys.stderr)
+    
+    with generation_lock:
+        return generation_sessions.get(session_id)
+
+def save_session(session_id, data):
+    with generation_lock:
+        generation_sessions[session_id] = data
+        
+    filepath = get_session_filepath(session_id)
+    temp_filepath = filepath + ".tmp"
+    try:
+        with open(temp_filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+        os.replace(temp_filepath, filepath)
+    except Exception as e:
+        print(f"Error saving session to file: {e}", file=sys.stderr)
+
+
 # ─── Constants from app.py ────────────────────────────────────────────────
 HEX_KEY = "2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3"
 API_KEY = bytes.fromhex(HEX_KEY)
@@ -564,8 +610,12 @@ def run_generation(session_id, count, region, name_prefix):
     asyncio.set_event_loop(loop)
     
     async def _run():
-        generation_sessions[session_id]['status'] = 'running'
-        generation_sessions[session_id]['total'] = count
+        session_data = load_session(session_id)
+        if session_data:
+            session_data['status'] = 'running'
+            session_data['total'] = count
+            save_session(session_id, session_data)
+            
         connector = aiohttp.TCPConnector(limit=0, ssl=False)
         async with aiohttp.ClientSession(connector=connector) as http_session:
             semaphore = asyncio.Semaphore(min(50, count))
@@ -578,24 +628,36 @@ def run_generation(session_id, count, region, name_prefix):
                         result = await create_single_account(http_session, region, name_prefix, idx)
                         if result:
                             with generation_lock:
-                                generation_sessions[session_id]['accounts'].append(result)
-                                generation_sessions[session_id]['success'] += 1
+                                s_data = load_session(session_id)
+                                if s_data:
+                                    s_data['accounts'].append(result)
+                                    s_data['success'] += 1
+                                    save_session(session_id, s_data)
                             break
                         await asyncio.sleep(random.uniform(0.3, 1.0))
                 with generation_lock:
                     tasks_done += 1
-                    generation_sessions[session_id]['done'] = tasks_done
+                    s_data = load_session(session_id)
+                    if s_data:
+                        s_data['done'] = tasks_done
+                        save_session(session_id, s_data)
 
             tasks = [worker(i + 1) for i in range(count)]
             await asyncio.gather(*tasks)
         
-        generation_sessions[session_id]['status'] = 'done'
+        session_data = load_session(session_id)
+        if session_data:
+            session_data['status'] = 'done'
+            save_session(session_id, session_data)
     
     try:
         loop.run_until_complete(_run())
     except Exception as e:
-        generation_sessions[session_id]['status'] = 'error'
-        generation_sessions[session_id]['error'] = str(e)
+        session_data = load_session(session_id)
+        if session_data:
+            session_data['status'] = 'error'
+            session_data['error'] = str(e)
+            save_session(session_id, session_data)
     finally:
         loop.close()
 
@@ -659,18 +721,22 @@ def start_generate():
         return jsonify({'error': 'Region tidak valid'}), 400
 
     session_id = f"gen_{int(time.time()*1000)}_{random.randint(1000,9999)}"
-    with generation_lock:
-        generation_sessions[session_id] = {
-            'status': 'starting',
-            'accounts': [],
-            'success': 0,
-            'done': 0,
-            'total': count,
-            'region': region,
-            'name_prefix': name_prefix,
-            'started_at': datetime.now().isoformat(),
-            'error': None
-        }
+    
+    # Hapus sesi-sesi lama sebelum membuat sesi baru
+    cleanup_old_sessions()
+    
+    session_data = {
+        'status': 'starting',
+        'accounts': [],
+        'success': 0,
+        'done': 0,
+        'total': count,
+        'region': region,
+        'name_prefix': name_prefix,
+        'started_at': datetime.now().isoformat(),
+        'error': None
+    }
+    save_session(session_id, session_data)
 
     t = threading.Thread(
         target=run_generation,
@@ -684,8 +750,7 @@ def start_generate():
 @app.route('/api/status/<session_id>', methods=['GET'])
 @require_auth
 def get_status(session_id):
-    with generation_lock:
-        data = generation_sessions.get(session_id)
+    data = load_session(session_id)
     if not data:
         return jsonify({'error': 'Session tidak ditemukan'}), 404
     return jsonify({

@@ -11,6 +11,7 @@ Blinx/
 SulavXKawar/
 accounts*.json
 *.recovery
+sessions/
 
 # Proxy (optional, keep if needed)
 # proxy.txt
