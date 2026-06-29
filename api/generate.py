@@ -551,4 +551,52 @@ def start_generate():
 
     if count < 1 or count > 50:
         return jsonify({'error': 'Jumlah akun harus antara 1-50'}), 400
-    if region not in ALL_REGIONS
+    if region not in ALL_REGIONS:
+        return jsonify({'error': 'Region tidak valid'}), 400
+
+    session_id = f"gen_{int(time.time()*1000)}_{random.randint(1000,9999)}"
+    with generation_lock:
+        generation_sessions[session_id] = {
+            'status': 'starting',
+            'accounts': [],
+            'success': 0,
+            'done': 0,
+            'total': count,
+            'region': region,
+            'name_prefix': name_prefix,
+            'started_at': datetime.now().isoformat(),
+            'error': None
+        }
+
+    t = threading.Thread(
+        target=run_generation,
+        args=(session_id, count, region, name_prefix),
+        daemon=True
+    )
+    t.start()
+
+    return jsonify({'session_id': session_id, 'message': 'Generation dimulai'})
+
+@app.route('/api/status/<session_id>', methods=['GET'])
+@require_auth
+def get_status(session_id):
+    with generation_lock:
+        data = generation_sessions.get(session_id)
+    if not data:
+        return jsonify({'error': 'Session tidak ditemukan'}), 404
+    return jsonify({
+        'status': data['status'],
+        'success': data['success'],
+        'done': data['done'],
+        'total': data['total'],
+        'accounts': data['accounts'],
+        'region': data['region'],
+        'error': data['error']
+    })
+
+@app.route('/api/check_auth', methods=['GET'])
+def check_auth():
+    return jsonify({'authenticated': bool(session.get('authenticated'))})
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)

@@ -560,4 +560,3 @@ clearBtn.addEventListener('click', () => {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 checkAuth();
 updateNameSample();
-  
