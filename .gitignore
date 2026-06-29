@@ -1,0 +1,29 @@
+# Environment
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Generated accounts (local only)
+Blinx/
+SulavXKawar/
+accounts*.json
+*.recovery
+
+# Proxy (optional, keep if needed)
+# proxy.txt
+
+# Vercel
+.vercel/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
