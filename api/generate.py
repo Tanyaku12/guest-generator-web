@@ -339,12 +339,38 @@ async def build_major_login_payload_proto(open_id, access_token):
     except:
         return None
 
+# Track failed proxies to skip them quickly
+_failed_proxies = set()
+_failed_proxies_lock = threading.Lock()
+
 def get_next_proxy():
-    """Get next proxy from rotation pool without pre-validation.
-    Pre-validation floods the target servers with test requests and causes
-    rate limiting. Instead, use the proxy directly and let the actual request
-    handle failures via retry logic."""
-    return IPRotator.get_rotating_proxy()
+    """Get next proxy from rotation pool, skipping recently failed ones."""
+    if not IPRotator.PROXIES:
+        return None
+    for _ in range(min(len(IPRotator.PROXIES), 5)):
+        p = IPRotator.get_rotating_proxy()
+        with _failed_proxies_lock:
+            if p not in _failed_proxies:
+                return p
+    return None  # All tried proxies are failed → use direct
+
+def mark_proxy_failed(proxy):
+    if proxy:
+        with _failed_proxies_lock:
+            _failed_proxies.add(proxy)
+            # Cap the set so it doesn't grow forever
+            if len(_failed_proxies) > 500:
+                _failed_proxies.clear()
+
+# Connection-related exceptions that indicate a dead proxy
+_PROXY_CONN_ERRORS = (
+    aiohttp.ClientProxyConnectionError,
+    aiohttp.ServerDisconnectedError,
+    aiohttp.ClientConnectorError,
+    aiohttp.ClientOSError,
+    asyncio.TimeoutError,
+    aiohttp.ClientHttpProxyError,
+)
 
 # ─── Core async account creator ───────────────────────────────────────────
 async def create_single_account(session_obj, region, name_prefix, account_index):
@@ -366,6 +392,30 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
     }
     headers_base = get_spoof_headers(headers_base, region)
 
+    async def do_request(url, data, headers, use_proxy):
+        """Make a POST request, trying multiple proxies on connection failure."""
+        nonlocal proxy
+        current_proxy = use_proxy
+        
+        for attempt in range(15):
+            try:
+                async with session_obj.post(
+                    url, data=data, headers=headers,
+                    ssl=False, timeout=aiohttp.ClientTimeout(total=15),
+                    proxy=current_proxy
+                ) as resp:
+                    proxy = current_proxy
+                    return resp.status, await resp.read()
+            except _PROXY_CONN_ERRORS as e:
+                print(f"[{account_index}] Proxy {current_proxy} failed ({type(e).__name__}), attempt {attempt+1}/15", file=sys.stderr)
+                mark_proxy_failed(current_proxy)
+                current_proxy = get_next_proxy()
+                if not current_proxy:
+                    print(f"[{account_index}] No more proxies available", file=sys.stderr)
+                    raise Exception("No more proxies available")
+        
+        raise Exception("Max proxy retries reached")
+
     try:
         # Step 1: Register
         payload_reg = json.dumps({
@@ -375,18 +425,26 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
         sig_reg = hmac.new(API_KEY, payload_reg.encode(), hashlib.sha256).hexdigest()
         headers_reg = {**headers_base, "Authorization": f"Signature {sig_reg}"}
 
-        async with session_obj.post(
-            REGISTER_URL, data=payload_reg, headers=headers_reg,
-            ssl=False, timeout=aiohttp.ClientTimeout(total=15), proxy=proxy
-        ) as resp:
-            if resp.status != 200:
-                print(f"[{account_index}] Step 1 HTTP Failure: status={resp.status}, proxy={proxy}", file=sys.stderr)
+        max_retries = 3
+        for retry in range(max_retries):
+            status1, body1 = await do_request(REGISTER_URL, payload_reg, headers_reg, proxy)
+            if status1 == 429:
+                print(f"[{account_index}] Step 1 hit 429 Too Many Requests, proxy={proxy}. Retrying...", file=sys.stderr)
+                proxy = get_next_proxy()
+                continue
+            if status1 != 200:
+                print(f"[{account_index}] Step 1 HTTP Failure: status={status1}, proxy={proxy}", file=sys.stderr)
                 return None
-            reg_json = await resp.json()
-            if reg_json.get("code") != 0:
-                print(f"[{account_index}] Step 1 Code Failure: json={reg_json}, proxy={proxy}", file=sys.stderr)
-                return None
-            uid = reg_json['data']['uid']
+            break
+        
+        if status1 != 200:
+            return None
+            
+        reg_json = json.loads(body1)
+        if reg_json.get("code") != 0:
+            print(f"[{account_index}] Step 1 Code Failure: json={reg_json}, proxy={proxy}", file=sys.stderr)
+            return None
+        uid = reg_json['data']['uid']
 
         # Step 2: Token
         payload_tok = json.dumps({
@@ -397,19 +455,25 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
         sig_tok = hmac.new(API_KEY, payload_tok.encode(), hashlib.sha256).hexdigest()
         headers_tok = {**headers_base, "Authorization": f"Signature {sig_tok}"}
 
-        async with session_obj.post(
-            TOKEN_URL, data=payload_tok, headers=headers_tok,
-            ssl=False, timeout=aiohttp.ClientTimeout(total=15), proxy=proxy
-        ) as resp:
-            if resp.status != 200:
-                print(f"[{account_index}] Step 2 HTTP Failure: status={resp.status}, proxy={proxy}", file=sys.stderr)
+        for retry in range(max_retries):
+            status2, body2 = await do_request(TOKEN_URL, payload_tok, headers_tok, proxy)
+            if status2 == 429:
+                print(f"[{account_index}] Step 2 hit 429 Too Many Requests, proxy={proxy}. Retrying...", file=sys.stderr)
+                proxy = get_next_proxy()
+                continue
+            if status2 != 200:
+                print(f"[{account_index}] Step 2 HTTP Failure: status={status2}, proxy={proxy}", file=sys.stderr)
                 return None
-            tok_json = await resp.json()
-            if tok_json.get("code") != 0:
-                print(f"[{account_index}] Step 2 Code Failure: json={tok_json}, proxy={proxy}", file=sys.stderr)
-                return None
-            access_token = tok_json['data']['access_token']
-            open_id = tok_json['data']['open_id']
+            break
+            
+        if status2 != 200:
+            return None
+        tok_json = json.loads(body2)
+        if tok_json.get("code") != 0:
+            print(f"[{account_index}] Step 2 Code Failure: json={tok_json}, proxy={proxy}", file=sys.stderr)
+            return None
+        access_token = tok_json['data']['access_token']
+        open_id = tok_json['data']['open_id']
 
         # Step 3: Major Register
         lang_code = REGION_LANG.get(region.upper(), "en")
@@ -439,14 +503,10 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
         }
         headers_mreg = get_spoof_headers(headers_mreg, region)
 
-        async with session_obj.post(
-            MAJOR_REGISTER_URL, data=encrypted_payload, headers=headers_mreg,
-            ssl=False, timeout=aiohttp.ClientTimeout(total=15), proxy=proxy
-        ) as resp:
-            if resp.status != 200:
-                body = await resp.read()
-                print(f"[{account_index}] Step 3 HTTP Failure: status={resp.status}, proxy={proxy}, body={body}", file=sys.stderr)
-                return None
+        status3, body3 = await do_request(MAJOR_REGISTER_URL, encrypted_payload, headers_mreg, proxy)
+        if status3 != 200:
+            print(f"[{account_index}] Step 3 HTTP Failure: status={status3}, proxy={proxy}, body={body3}", file=sys.stderr)
+            return None
 
         # Step 4: Major Login
         final_payload = await build_major_login_payload_proto(open_id, access_token)
@@ -464,50 +524,46 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
         }
         headers_ml = get_spoof_headers(headers_ml, region)
 
-        async with session_obj.post(
-            MAJOR_LOGIN_URL, data=final_payload, headers=headers_ml,
-            ssl=False, timeout=aiohttp.ClientTimeout(total=15), proxy=proxy
-        ) as resp:
-            if resp.status != 200:
-                body = await resp.read()
-                print(f"[{account_index}] Step 4 HTTP Failure: status={resp.status}, proxy={proxy}, body={body}", file=sys.stderr)
-                return None
-            content = await resp.read()
-            account_id = "N/A"
-            jwt_token = ""
-            if PROTO_AVAILABLE:
-                try:
-                    parsed = decode_proto(content)
-                    token = parsed.get(8, b'').decode('utf-8', errors='ignore')
-                    if token:
-                        account_uid = parsed.get(1)
-                        account_id = str(account_uid) if account_uid else decode_jwt_token(token)
-                        jwt_token = token
-                except:
-                    pass
-            if account_id == "N/A":
-                text = content.decode('utf-8', errors='ignore')
-                jwt_start = text.find("eyJ")
-                if jwt_start != -1:
-                    jt = text[jwt_start:]
-                    second_dot = jt.find(".", jt.find(".") + 1)
-                    if second_dot != -1:
-                        jwt_token = jt[:second_dot + 44]
-                        account_id = decode_jwt_token(jwt_token)
+        status4, content = await do_request(MAJOR_LOGIN_URL, final_payload, headers_ml, proxy)
+        if status4 != 200:
+            print(f"[{account_index}] Step 4 HTTP Failure: status={status4}, proxy={proxy}, body={content}", file=sys.stderr)
+            return None
 
-            if account_id == "N/A":
-                print(f"[{account_index}] Step 4 Account ID not found in response, proxy={proxy}", file=sys.stderr)
-                return None
+        account_id = "N/A"
+        jwt_token = ""
+        if PROTO_AVAILABLE:
+            try:
+                parsed = decode_proto(content)
+                token = parsed.get(8, b'').decode('utf-8', errors='ignore')
+                if token:
+                    account_uid = parsed.get(1)
+                    account_id = str(account_uid) if account_uid else decode_jwt_token(token)
+                    jwt_token = token
+            except:
+                pass
+        if account_id == "N/A":
+            text = content.decode('utf-8', errors='ignore')
+            jwt_start = text.find("eyJ")
+            if jwt_start != -1:
+                jt = text[jwt_start:]
+                second_dot = jt.find(".", jt.find(".") + 1)
+                if second_dot != -1:
+                    jwt_token = jt[:second_dot + 44]
+                    account_id = decode_jwt_token(jwt_token)
 
-            return {
-                "uid": str(uid),
-                "password": password,
-                "account_id": account_id,
-                "name": name,
-                "region": region,
-                "created_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                "is_rare": check_rarity(account_id)
-            }
+        if account_id == "N/A":
+            print(f"[{account_index}] Step 4 Account ID not found in response, proxy={proxy}", file=sys.stderr)
+            return None
+
+        return {
+            "uid": str(uid),
+            "password": password,
+            "account_id": account_id,
+            "name": name,
+            "region": region,
+            "created_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "is_rare": check_rarity(account_id)
+        }
 
     except Exception as e:
         import traceback
