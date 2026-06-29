@@ -52,55 +52,6 @@ ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'BLINXANDSLVFFY')
 generation_sessions = {}  # session_id -> {status, accounts, ...}
 generation_lock = threading.Lock()
 
-# ─── File-based Session Persistence ─────────────────────────────────────────
-if os.environ.get('VERCEL') == '1':
-    SESSION_DIR = '/tmp/sessions'
-else:
-    SESSION_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'sessions')
-os.makedirs(SESSION_DIR, exist_ok=True)
-
-def cleanup_old_sessions():
-    try:
-        now = time.time()
-        for filename in os.listdir(SESSION_DIR):
-            if filename.endswith('.json'):
-                filepath = os.path.join(SESSION_DIR, filename)
-                # Hapus sesi yang berusia lebih dari 6 jam
-                if now - os.path.getmtime(filepath) > 6 * 3600:
-                    os.remove(filepath)
-    except Exception as e:
-        print(f"Error cleaning up old sessions: {e}", file=sys.stderr)
-
-def get_session_filepath(session_id):
-    safe_id = "".join([c for c in session_id if c.isalnum() or c in '_-'])
-    return os.path.join(SESSION_DIR, f"{safe_id}.json")
-
-def load_session(session_id):
-    filepath = get_session_filepath(session_id)
-    if os.path.exists(filepath):
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Error loading session from file: {e}", file=sys.stderr)
-    
-    with generation_lock:
-        return generation_sessions.get(session_id)
-
-def save_session(session_id, data):
-    with generation_lock:
-        generation_sessions[session_id] = data
-        
-    filepath = get_session_filepath(session_id)
-    temp_filepath = filepath + ".tmp"
-    try:
-        with open(temp_filepath, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
-        os.replace(temp_filepath, filepath)
-    except Exception as e:
-        print(f"Error saving session to file: {e}", file=sys.stderr)
-
-
 # ─── Constants from app.py ────────────────────────────────────────────────
 HEX_KEY = "2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3"
 API_KEY = bytes.fromhex(HEX_KEY)
@@ -139,24 +90,19 @@ class IPRotator:
         proxy_paths = [
             os.path.join(parent_dir, "proxy.txt"),
             os.path.join(parent_dir, "proxies.txt"),
-            os.path.join(parent_dir, "working_proxies.txt"),
             "proxy.txt",
-            "proxies.txt",
-            "working_proxies.txt"
+            "proxies.txt"
         ]
-        all_proxies = []
         for path in proxy_paths:
             if os.path.exists(path):
                 try:
                     with open(path, 'r', encoding='utf-8') as f:
                         lines = [line.strip() for line in f if line.strip()]
                     if lines:
-                        all_proxies.extend(lines)
+                        cls.PROXIES = lines
+                        break
                 except:
                     pass
-        # Hilangkan duplikat dengan mempertahankan urutan
-        seen = set()
-        cls.PROXIES = [x for x in all_proxies if not (x in seen or seen.add(x))]
 
     @classmethod
     def get_rotating_proxy(cls):
@@ -170,30 +116,6 @@ class IPRotator:
             return proxy
 
 IPRotator.load_proxies()
-
-# ─── Verified Proxy Pool ──────────────────────────────────────────────────
-class ProxyPool:
-    _verified_proxies = []
-    _lock = threading.Lock()
-    
-    @classmethod
-    def get_proxy(cls):
-        with cls._lock:
-            if cls._verified_proxies:
-                return random.choice(cls._verified_proxies)
-        return None
-
-    @classmethod
-    def add_proxy(cls, proxy):
-        with cls._lock:
-            if proxy not in cls._verified_proxies:
-                cls._verified_proxies.append(proxy)
-
-    @classmethod
-    def remove_proxy(cls, proxy):
-        with cls._lock:
-            if proxy in cls._verified_proxies:
-                cls._verified_proxies.remove(proxy)
 
 # ─── Crypto helpers ────────────────────────────────────────────────────────
 AES_AVAILABLE = False
@@ -418,23 +340,42 @@ async def build_major_login_payload_proto(open_id, access_token):
         return None
 
 async def get_valid_proxy(session):
-    # Server VPS dapat langsung terhubung ke API Garena tanpa proxy
-    # Semua proxy di file sudah mati, gunakan direct connection
+    proxies = []
+    for _ in range(15):
+        p = IPRotator.get_rotating_proxy()
+        if p:
+            proxies.append(p)
+    if not proxies:
+        return None
+
+    async def test_one(proxy):
+        try:
+            # 1. Test Garena register (POST)
+            url_garena = "https://100067.connect.garena.com/api/v2/oauth/guest:register"
+            async with session.post(url_garena, data=b"", proxy=proxy, timeout=2.5) as resp:
+                if resp.status == 400:
+                    # 2. Test Polarbear major login (POST)
+                    url_pb = "https://loginbp.ggpolarbear.com/MajorLogin"
+                    async with session.post(url_pb, data=b"", proxy=proxy, timeout=2.5) as resp_pb:
+                        if resp_pb.status in [200, 400, 503]:
+                            return proxy
+        except:
+            pass
+        return None
+
+    tasks = [asyncio.create_task(test_one(p)) for p in proxies]
+    try:
+        results = await asyncio.gather(*tasks)
+        working = [r for r in results if r is not None]
+        if working:
+            return random.choice(working)
+    except:
+        pass
     return None
 
 # ─── Core async account creator ───────────────────────────────────────────
 async def create_single_account(session_obj, region, name_prefix, account_index):
     proxy = await get_valid_proxy(session_obj)
-    res = await _create_single_account_impl(session_obj, region, name_prefix, account_index, proxy)
-    if res:
-        if proxy:
-            ProxyPool.add_proxy(proxy)
-    else:
-        if proxy:
-            ProxyPool.remove_proxy(proxy)
-    return res
-
-async def _create_single_account_impl(session_obj, region, name_prefix, account_index, proxy):
     password = generate_password()
     # Ensure nickname length does not exceed Garena's 12-character limit
     suffix = f"_{account_index}_{random.randint(100, 999)}"
@@ -623,12 +564,8 @@ def run_generation(session_id, count, region, name_prefix):
     asyncio.set_event_loop(loop)
     
     async def _run():
-        session_data = load_session(session_id)
-        if session_data:
-            session_data['status'] = 'running'
-            session_data['total'] = count
-            save_session(session_id, session_data)
-            
+        generation_sessions[session_id]['status'] = 'running'
+        generation_sessions[session_id]['total'] = count
         connector = aiohttp.TCPConnector(limit=0, ssl=False)
         async with aiohttp.ClientSession(connector=connector) as http_session:
             semaphore = asyncio.Semaphore(min(50, count))
@@ -641,36 +578,24 @@ def run_generation(session_id, count, region, name_prefix):
                         result = await create_single_account(http_session, region, name_prefix, idx)
                         if result:
                             with generation_lock:
-                                s_data = load_session(session_id)
-                                if s_data:
-                                    s_data['accounts'].append(result)
-                                    s_data['success'] += 1
-                                    save_session(session_id, s_data)
+                                generation_sessions[session_id]['accounts'].append(result)
+                                generation_sessions[session_id]['success'] += 1
                             break
                         await asyncio.sleep(random.uniform(0.3, 1.0))
                 with generation_lock:
                     tasks_done += 1
-                    s_data = load_session(session_id)
-                    if s_data:
-                        s_data['done'] = tasks_done
-                        save_session(session_id, s_data)
+                    generation_sessions[session_id]['done'] = tasks_done
 
             tasks = [worker(i + 1) for i in range(count)]
             await asyncio.gather(*tasks)
         
-        session_data = load_session(session_id)
-        if session_data:
-            session_data['status'] = 'done'
-            save_session(session_id, session_data)
+        generation_sessions[session_id]['status'] = 'done'
     
     try:
         loop.run_until_complete(_run())
     except Exception as e:
-        session_data = load_session(session_id)
-        if session_data:
-            session_data['status'] = 'error'
-            session_data['error'] = str(e)
-            save_session(session_id, session_data)
+        generation_sessions[session_id]['status'] = 'error'
+        generation_sessions[session_id]['error'] = str(e)
     finally:
         loop.close()
 
@@ -734,22 +659,18 @@ def start_generate():
         return jsonify({'error': 'Region tidak valid'}), 400
 
     session_id = f"gen_{int(time.time()*1000)}_{random.randint(1000,9999)}"
-    
-    # Hapus sesi-sesi lama sebelum membuat sesi baru
-    cleanup_old_sessions()
-    
-    session_data = {
-        'status': 'starting',
-        'accounts': [],
-        'success': 0,
-        'done': 0,
-        'total': count,
-        'region': region,
-        'name_prefix': name_prefix,
-        'started_at': datetime.now().isoformat(),
-        'error': None
-    }
-    save_session(session_id, session_data)
+    with generation_lock:
+        generation_sessions[session_id] = {
+            'status': 'starting',
+            'accounts': [],
+            'success': 0,
+            'done': 0,
+            'total': count,
+            'region': region,
+            'name_prefix': name_prefix,
+            'started_at': datetime.now().isoformat(),
+            'error': None
+        }
 
     t = threading.Thread(
         target=run_generation,
@@ -763,7 +684,8 @@ def start_generate():
 @app.route('/api/status/<session_id>', methods=['GET'])
 @require_auth
 def get_status(session_id):
-    data = load_session(session_id)
+    with generation_lock:
+        data = generation_sessions.get(session_id)
     if not data:
         return jsonify({'error': 'Session tidak ditemukan'}), 404
     return jsonify({
