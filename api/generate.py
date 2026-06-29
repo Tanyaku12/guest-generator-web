@@ -568,25 +568,26 @@ def run_generation(session_id, count, region, name_prefix):
         generation_sessions[session_id]['total'] = count
         connector = aiohttp.TCPConnector(limit=0, ssl=False)
         async with aiohttp.ClientSession(connector=connector) as http_session:
-            semaphore = asyncio.Semaphore(min(10, count))
+            semaphore = asyncio.Semaphore(min(50, count))
             tasks_done = 0
             
             async def worker(idx):
                 nonlocal tasks_done
-                for attempt in range(5):
-                    result = await create_single_account(http_session, region, name_prefix, idx)
-                    if result:
-                        with generation_lock:
-                            generation_sessions[session_id]['accounts'].append(result)
-                            generation_sessions[session_id]['success'] += 1
-                        break
-                    await asyncio.sleep(random.uniform(0.3, 1.0))
+                async with semaphore:
+                    for attempt in range(5):
+                        result = await create_single_account(http_session, region, name_prefix, idx)
+                        if result:
+                            with generation_lock:
+                                generation_sessions[session_id]['accounts'].append(result)
+                                generation_sessions[session_id]['success'] += 1
+                            break
+                        await asyncio.sleep(random.uniform(0.3, 1.0))
                 with generation_lock:
                     tasks_done += 1
                     generation_sessions[session_id]['done'] = tasks_done
 
             tasks = [worker(i + 1) for i in range(count)]
-            await asyncio.gather(*tasks, semaphore=semaphore) if False else await asyncio.gather(*tasks)
+            await asyncio.gather(*tasks)
         
         generation_sessions[session_id]['status'] = 'done'
     

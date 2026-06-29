@@ -283,7 +283,7 @@ $('countMinus').addEventListener('click', () => {
 
 $('countPlus').addEventListener('click', () => {
   const v = parseInt(accountCount.value) || 1;
-  accountCount.value = Math.min(50, v + 1);
+  accountCount.value = Math.min(1500, v + 1);
 });
 
 document.querySelectorAll('.preset-btn').forEach(btn => {
