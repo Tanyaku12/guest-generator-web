@@ -418,12 +418,9 @@ async def build_major_login_payload_proto(open_id, access_token):
         return None
 
 async def get_valid_proxy(session):
-    # Cek dari pool terlebih dahulu
-    p = ProxyPool.get_proxy()
-    if p:
-        return p
-    # Ambil langsung dari rotator tanpa mengetes terlebih dahulu untuk performa maksimal
-    return IPRotator.get_rotating_proxy()
+    # Server VPS dapat langsung terhubung ke API Garena tanpa proxy
+    # Semua proxy di file sudah mati, gunakan direct connection
+    return None
 
 # ─── Core async account creator ───────────────────────────────────────────
 async def create_single_account(session_obj, region, name_prefix, account_index):
