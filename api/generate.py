@@ -422,49 +422,19 @@ async def get_valid_proxy(session):
     p = ProxyPool.get_proxy()
     if p:
         return p
-        
-    proxies = []
-    for _ in range(15):
-        p = IPRotator.get_rotating_proxy()
-        if p:
-            proxies.append(p)
-    if not proxies:
-        return None
-
-    async def test_one(proxy):
-        try:
-            # 1. Test Garena register (POST)
-            url_garena = "https://100067.connect.garena.com/api/v2/oauth/guest:register"
-            async with session.post(url_garena, data=b"", proxy=proxy, timeout=2.5) as resp:
-                if resp.status == 400:
-                    # 2. Test Polarbear major login (POST)
-                    url_pb = "https://loginbp.ggpolarbear.com/MajorLogin"
-                    async with session.post(url_pb, data=b"", proxy=proxy, timeout=2.5) as resp_pb:
-                        if resp_pb.status in [200, 400, 503]:
-                            return proxy
-        except:
-            pass
-        return None
-
-    tasks = [asyncio.create_task(test_one(p)) for p in proxies]
-    try:
-        results = await asyncio.gather(*tasks)
-        working = [r for r in results if r is not None]
-        if working:
-            # Masukkan semua proxy yang aktif ke pool
-            for w in working:
-                ProxyPool.add_proxy(w)
-            return random.choice(working)
-    except:
-        pass
-    return None
+    # Ambil langsung dari rotator tanpa mengetes terlebih dahulu untuk performa maksimal
+    return IPRotator.get_rotating_proxy()
 
 # ─── Core async account creator ───────────────────────────────────────────
 async def create_single_account(session_obj, region, name_prefix, account_index):
     proxy = await get_valid_proxy(session_obj)
     res = await _create_single_account_impl(session_obj, region, name_prefix, account_index, proxy)
-    if res is None and proxy:
-        ProxyPool.remove_proxy(proxy)
+    if res:
+        if proxy:
+            ProxyPool.add_proxy(proxy)
+    else:
+        if proxy:
+            ProxyPool.remove_proxy(proxy)
     return res
 
 async def _create_single_account_impl(session_obj, region, name_prefix, account_index, proxy):
