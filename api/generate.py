@@ -561,7 +561,7 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
             "account_id": account_id,
             "name": name,
             "region": region,
-            "created_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "created_at": (datetime.utcnow() + timedelta(hours=7)).strftime('%Y-%m-%d %H:%M:%S') + ' WIB',
             "is_rare": check_rarity(account_id)
         }
 
