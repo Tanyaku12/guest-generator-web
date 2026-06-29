@@ -53,7 +53,10 @@ generation_sessions = {}  # session_id -> {status, accounts, ...}
 generation_lock = threading.Lock()
 
 # ─── File-based Session Persistence ─────────────────────────────────────────
-SESSION_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'sessions')
+if os.environ.get('VERCEL') == '1':
+    SESSION_DIR = '/tmp/sessions'
+else:
+    SESSION_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'sessions')
 os.makedirs(SESSION_DIR, exist_ok=True)
 
 def cleanup_old_sessions():
