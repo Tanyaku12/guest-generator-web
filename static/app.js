@@ -17,6 +17,31 @@ const state = {
   generating: false
 };
 
+// ─── LocalStorage Helpers ──────────────────────────────────────────────────
+function getSavedAccounts() {
+  try {
+    return JSON.parse(localStorage.getItem('blinx_saved_accounts')) || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveAccountsToLocalStorage(accs) {
+  try {
+    localStorage.setItem('blinx_saved_accounts', JSON.stringify(accs));
+  } catch (e) {
+    console.error('Failed to save to localStorage', e);
+  }
+}
+
+function addAccountToSaved(acc) {
+  const saved = getSavedAccounts();
+  if (!saved.some(a => a.uid === acc.uid)) {
+    saved.push(acc);
+    saveAccountsToLocalStorage(saved);
+  }
+}
+
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 const loginScreen   = $('loginScreen');
@@ -292,6 +317,13 @@ generateForm.addEventListener('submit', async e => {
 });
 
 async function startGenerating(count, region, prefix) {
+  // Switch to "Semua" tab to show active generation progress
+  state.filter = 'all';
+  document.querySelectorAll('.filter-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.filter === 'all');
+  });
+  reRenderFiltered();
+
   state.generating = true;
   generateBtn.disabled = true;
   generateBtnText.textContent = 'Sedang generate...';
@@ -358,6 +390,7 @@ function pollStatus(sessionId, total) {
           const isFirst = rendered === 0 && i === 0;
           addAccountCard(acc, isFirst);
           state.accounts.push(acc);
+          addAccountToSaved(acc); // Automatically save to localStorage
         });
         rendered = data.accounts.length;
         updateResultsUI();
@@ -407,6 +440,18 @@ function buildCard(acc, index, isNew = false) {
   const idx = index + 1;
   const timeStr = acc.created_at || '';
 
+  let deleteBtnHtml = '';
+  if (state.filter === 'saved') {
+    deleteBtnHtml = `
+      <button class="btn-delete" title="Hapus dari tersimpan">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+        </svg>
+      </button>
+    `;
+  }
+
   div.innerHTML = `
     <div class="card-index">${idx}</div>
     <div class="card-body">
@@ -443,6 +488,7 @@ function buildCard(acc, index, isNew = false) {
           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
         </svg>
       </button>
+      ${deleteBtnHtml}
     </div>
   `;
 
@@ -452,6 +498,23 @@ function buildCard(acc, index, isNew = false) {
     const text = `Name: ${acc.name}\nUID: ${acc.uid}\nPassword: ${acc.password}\nAccount ID: ${acc.account_id}\nRegion: ${acc.region}`;
     copyText(text, this);
   });
+
+  // Delete button
+  if (state.filter === 'saved') {
+    const deleteBtn = div.querySelector('.btn-delete');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', () => {
+        if (confirm('Hapus akun ini dari daftar tersimpan?')) {
+          const saved = getSavedAccounts();
+          const updated = saved.filter(a => a.uid !== acc.uid);
+          saveAccountsToLocalStorage(updated);
+          toast('Akun dihapus dari tersimpan', 'info');
+          reRenderFiltered();
+          updateResultsUI();
+        }
+      });
+    }
+  }
 
   return div;
 }
@@ -493,12 +556,13 @@ document.querySelectorAll('.filter-tab').forEach(btn => {
     btn.classList.add('active');
     state.filter = btn.dataset.filter;
     reRenderFiltered();
+    updateResultsUI();
   });
 });
 
 function reRenderFiltered() {
   accountsList.innerHTML = '';
-  let filtered = state.accounts;
+  let filtered = state.filter === 'saved' ? getSavedAccounts() : state.accounts;
   if (state.filter === 'rare') filtered = filtered.filter(a => a.is_rare);
   if (state.search) {
     filtered = filtered.filter(a =>
@@ -509,6 +573,15 @@ function reRenderFiltered() {
   }
   if (filtered.length === 0) {
     emptyState.classList.remove('hidden');
+    const emptyTitle = emptyState.querySelector('.empty-title');
+    const emptySub = emptyState.querySelector('.empty-sub');
+    if (state.filter === 'saved') {
+      emptyTitle.textContent = 'Belum ada akun tersimpan';
+      emptySub.textContent = 'Akun yang berhasil di-generate akan tersimpan secara otomatis di sini';
+    } else {
+      emptyTitle.textContent = 'Belum ada akun';
+      emptySub.textContent = 'Generate akun pertama kamu di panel sebelah kiri';
+    }
   } else {
     emptyState.classList.add('hidden');
     filtered.forEach((acc, i) => {
@@ -520,7 +593,7 @@ function reRenderFiltered() {
 
 // ─── Results actions ──────────────────────────────────────────────────────────
 function updateResultsUI() {
-  const total = state.accounts.length;
+  const total = state.filter === 'saved' ? getSavedAccounts().length : state.accounts.length;
   totalBadge.textContent = `${total} akun`;
   const hasAccs = total > 0;
   copyAllBtn.disabled = !hasAccs;
@@ -530,31 +603,38 @@ function updateResultsUI() {
 }
 
 copyAllBtn.addEventListener('click', () => {
-  const text = state.accounts.map((a, i) =>
+  const targetAccounts = state.filter === 'saved' ? getSavedAccounts() : state.accounts;
+  const text = targetAccounts.map((a, i) =>
     `[${i+1}] Name: ${a.name} | UID: ${a.uid} | Pass: ${a.password} | ID: ${a.account_id} | Region: ${a.region}`
   ).join('\n');
   copyText(text, null);
-  toast(`${state.accounts.length} akun disalin!`, 'success');
+  toast(`${targetAccounts.length} akun disalin!`, 'success');
 });
 
 downloadBtn.addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(state.accounts, null, 2)], { type: 'application/json' });
+  const targetAccounts = state.filter === 'saved' ? getSavedAccounts() : state.accounts;
+  const blob = new Blob([JSON.stringify(targetAccounts, null, 2)], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url;
-  a.download = `blinx-accounts-${Date.now()}.json`;
+  a.download = state.filter === 'saved' ? `blinx-saved-accounts-${Date.now()}.json` : `blinx-accounts-${Date.now()}.json`;
   a.click();
   URL.revokeObjectURL(url);
   toast('Download dimulai', 'success');
 });
 
 clearBtn.addEventListener('click', () => {
-  if (!confirm('Hapus semua hasil generate?')) return;
-  state.accounts = [];
-  accountsList.innerHTML = '';
-  emptyState.classList.remove('hidden');
+  if (state.filter === 'saved') {
+    if (!confirm('Hapus semua akun tersimpan dari localStorage?')) return;
+    saveAccountsToLocalStorage([]);
+    toast('Semua akun tersimpan dihapus', 'info');
+  } else {
+    if (!confirm('Hapus semua hasil generate sesi ini?')) return;
+    state.accounts = [];
+    toast('Semua akun sesi ini dihapus', 'info');
+  }
+  reRenderFiltered();
   updateResultsUI();
-  toast('Semua akun dihapus', 'info');
 });
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
