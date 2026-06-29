@@ -139,19 +139,24 @@ class IPRotator:
         proxy_paths = [
             os.path.join(parent_dir, "proxy.txt"),
             os.path.join(parent_dir, "proxies.txt"),
+            os.path.join(parent_dir, "working_proxies.txt"),
             "proxy.txt",
-            "proxies.txt"
+            "proxies.txt",
+            "working_proxies.txt"
         ]
+        all_proxies = []
         for path in proxy_paths:
             if os.path.exists(path):
                 try:
                     with open(path, 'r', encoding='utf-8') as f:
                         lines = [line.strip() for line in f if line.strip()]
                     if lines:
-                        cls.PROXIES = lines
-                        break
+                        all_proxies.extend(lines)
                 except:
                     pass
+        # Hilangkan duplikat dengan mempertahankan urutan
+        seen = set()
+        cls.PROXIES = [x for x in all_proxies if not (x in seen or seen.add(x))]
 
     @classmethod
     def get_rotating_proxy(cls):
@@ -165,6 +170,30 @@ class IPRotator:
             return proxy
 
 IPRotator.load_proxies()
+
+# ─── Verified Proxy Pool ──────────────────────────────────────────────────
+class ProxyPool:
+    _verified_proxies = []
+    _lock = threading.Lock()
+    
+    @classmethod
+    def get_proxy(cls):
+        with cls._lock:
+            if cls._verified_proxies:
+                return random.choice(cls._verified_proxies)
+        return None
+
+    @classmethod
+    def add_proxy(cls, proxy):
+        with cls._lock:
+            if proxy not in cls._verified_proxies:
+                cls._verified_proxies.append(proxy)
+
+    @classmethod
+    def remove_proxy(cls, proxy):
+        with cls._lock:
+            if proxy in cls._verified_proxies:
+                cls._verified_proxies.remove(proxy)
 
 # ─── Crypto helpers ────────────────────────────────────────────────────────
 AES_AVAILABLE = False
@@ -389,6 +418,11 @@ async def build_major_login_payload_proto(open_id, access_token):
         return None
 
 async def get_valid_proxy(session):
+    # Cek dari pool terlebih dahulu
+    p = ProxyPool.get_proxy()
+    if p:
+        return p
+        
     proxies = []
     for _ in range(15):
         p = IPRotator.get_rotating_proxy()
@@ -417,6 +451,9 @@ async def get_valid_proxy(session):
         results = await asyncio.gather(*tasks)
         working = [r for r in results if r is not None]
         if working:
+            # Masukkan semua proxy yang aktif ke pool
+            for w in working:
+                ProxyPool.add_proxy(w)
             return random.choice(working)
     except:
         pass
@@ -425,6 +462,12 @@ async def get_valid_proxy(session):
 # ─── Core async account creator ───────────────────────────────────────────
 async def create_single_account(session_obj, region, name_prefix, account_index):
     proxy = await get_valid_proxy(session_obj)
+    res = await _create_single_account_impl(session_obj, region, name_prefix, account_index, proxy)
+    if res is None and proxy:
+        ProxyPool.remove_proxy(proxy)
+    return res
+
+async def _create_single_account_impl(session_obj, region, name_prefix, account_index, proxy):
     password = generate_password()
     # Ensure nickname length does not exceed Garena's 12-character limit
     suffix = f"_{account_index}_{random.randint(100, 999)}"
