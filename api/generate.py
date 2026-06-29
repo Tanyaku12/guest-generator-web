@@ -66,6 +66,45 @@ REGION_LANG = {
     "NA": "en", "SAC": "es", "BR": "pt"
 }
 
+# ─── Proxy Rotator ─────────────────────────────────────────────────────────
+class IPRotator:
+    PROXIES = []
+    _proxy_index = 0
+    _proxy_lock = threading.Lock()
+
+    @classmethod
+    def load_proxies(cls):
+        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        proxy_paths = [
+            os.path.join(parent_dir, "proxy.txt"),
+            os.path.join(parent_dir, "proxies.txt"),
+            "proxy.txt",
+            "proxies.txt"
+        ]
+        for path in proxy_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        lines = [line.strip() for line in f if line.strip()]
+                    if lines:
+                        cls.PROXIES = lines
+                        break
+                except:
+                    pass
+
+    @classmethod
+    def get_rotating_proxy(cls):
+        if not cls.PROXIES:
+            return None
+        with cls._proxy_lock:
+            proxy = cls.PROXIES[cls._proxy_index % len(cls.PROXIES)]
+            cls._proxy_index += 1
+            if not proxy.startswith("http://") and not proxy.startswith("https://") and not proxy.startswith("socks"):
+                proxy = f"http://{proxy}"
+            return proxy
+
+IPRotator.load_proxies()
+
 # ─── Crypto helpers ────────────────────────────────────────────────────────
 AES_AVAILABLE = False
 try:
@@ -290,6 +329,7 @@ async def build_major_login_payload_proto(open_id, access_token):
 
 # ─── Core async account creator ───────────────────────────────────────────
 async def create_single_account(session_obj, region, name_prefix, account_index):
+    proxy = IPRotator.get_rotating_proxy()
     password = generate_password()
     name = f"{name_prefix}_{account_index}"
     timestamp = str(int(time.time() * 1000))
@@ -314,7 +354,7 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
 
         async with session_obj.post(
             REGISTER_URL, data=payload_reg, headers=headers_reg,
-            ssl=False, timeout=aiohttp.ClientTimeout(total=15)
+            ssl=False, timeout=aiohttp.ClientTimeout(total=15), proxy=proxy
         ) as resp:
             if resp.status != 200:
                 return None
@@ -334,7 +374,7 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
 
         async with session_obj.post(
             TOKEN_URL, data=payload_tok, headers=headers_tok,
-            ssl=False, timeout=aiohttp.ClientTimeout(total=15)
+            ssl=False, timeout=aiohttp.ClientTimeout(total=15), proxy=proxy
         ) as resp:
             if resp.status != 200:
                 return None
@@ -374,7 +414,7 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
 
         async with session_obj.post(
             MAJOR_REGISTER_URL, data=encrypted_payload, headers=headers_mreg,
-            ssl=False, timeout=aiohttp.ClientTimeout(total=15)
+            ssl=False, timeout=aiohttp.ClientTimeout(total=15), proxy=proxy
         ) as resp:
             if resp.status != 200:
                 return None
@@ -396,7 +436,7 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
 
         async with session_obj.post(
             MAJOR_LOGIN_URL, data=final_payload, headers=headers_ml,
-            ssl=False, timeout=aiohttp.ClientTimeout(total=15)
+            ssl=False, timeout=aiohttp.ClientTimeout(total=15), proxy=proxy
         ) as resp:
             if resp.status != 200:
                 return None
@@ -436,7 +476,10 @@ async def create_single_account(session_obj, region, name_prefix, account_index)
                 "is_rare": check_rarity(account_id)
             }
 
-    except Exception:
+    except Exception as e:
+        import traceback
+        print(f"Error creating account {account_index}: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         return None
 
 def check_rarity(account_id):
@@ -549,8 +592,8 @@ def start_generate():
     region = data.get('region', 'ID').upper()
     name_prefix = data.get('name_prefix', 'Blinx').strip() or 'Blinx'
 
-    if count < 1 or count > 50:
-        return jsonify({'error': 'Jumlah akun harus antara 1-50'}), 400
+    if count < 1 or count > 1500:
+        return jsonify({'error': 'Jumlah akun harus antara 1-1500'}), 400
     if region not in ALL_REGIONS:
         return jsonify({'error': 'Region tidak valid'}), 400
 
