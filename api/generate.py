@@ -339,43 +339,16 @@ async def build_major_login_payload_proto(open_id, access_token):
     except:
         return None
 
-async def get_valid_proxy(session):
-    proxies = []
-    for _ in range(15):
-        p = IPRotator.get_rotating_proxy()
-        if p:
-            proxies.append(p)
-    if not proxies:
-        return None
-
-    async def test_one(proxy):
-        try:
-            # 1. Test Garena register (POST)
-            url_garena = "https://100067.connect.garena.com/api/v2/oauth/guest:register"
-            async with session.post(url_garena, data=b"", proxy=proxy, timeout=2.5) as resp:
-                if resp.status == 400:
-                    # 2. Test Polarbear major login (POST)
-                    url_pb = "https://loginbp.ggpolarbear.com/MajorLogin"
-                    async with session.post(url_pb, data=b"", proxy=proxy, timeout=2.5) as resp_pb:
-                        if resp_pb.status in [200, 400, 503]:
-                            return proxy
-        except:
-            pass
-        return None
-
-    tasks = [asyncio.create_task(test_one(p)) for p in proxies]
-    try:
-        results = await asyncio.gather(*tasks)
-        working = [r for r in results if r is not None]
-        if working:
-            return random.choice(working)
-    except:
-        pass
-    return None
+def get_next_proxy():
+    """Get next proxy from rotation pool without pre-validation.
+    Pre-validation floods the target servers with test requests and causes
+    rate limiting. Instead, use the proxy directly and let the actual request
+    handle failures via retry logic."""
+    return IPRotator.get_rotating_proxy()
 
 # ─── Core async account creator ───────────────────────────────────────────
 async def create_single_account(session_obj, region, name_prefix, account_index):
-    proxy = await get_valid_proxy(session_obj)
+    proxy = get_next_proxy()
     password = generate_password()
     # Ensure nickname length does not exceed Garena's 12-character limit
     suffix = f"_{account_index}_{random.randint(100, 999)}"
@@ -568,20 +541,22 @@ def run_generation(session_id, count, region, name_prefix):
         generation_sessions[session_id]['total'] = count
         connector = aiohttp.TCPConnector(limit=0, ssl=False)
         async with aiohttp.ClientSession(connector=connector) as http_session:
-            semaphore = asyncio.Semaphore(min(500, count))
+            semaphore = asyncio.Semaphore(min(50, count))
             tasks_done = 0
             
             async def worker(idx):
                 nonlocal tasks_done
                 async with semaphore:
                     for attempt in range(5):
+                        if attempt > 0:
+                            # Small back-off on retries, rotating proxy handled inside create_single_account
+                            await asyncio.sleep(random.uniform(0.5, 1.5))
                         result = await create_single_account(http_session, region, name_prefix, idx)
                         if result:
                             with generation_lock:
                                 generation_sessions[session_id]['accounts'].append(result)
                                 generation_sessions[session_id]['success'] += 1
                             break
-                        await asyncio.sleep(random.uniform(0.3, 1.0))
                 with generation_lock:
                     tasks_done += 1
                     generation_sessions[session_id]['done'] = tasks_done
