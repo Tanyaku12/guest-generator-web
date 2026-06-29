@@ -34,7 +34,7 @@ app = Flask(__name__, static_folder='../static', static_url_path='/static')
 app.secret_key = os.environ.get('SECRET_KEY', 'Blinx-Slvffy')
 
 # ─── Admin Password ────────────────────────────────────────────────────────
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'Blinx-Slvffy-2026')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'BLINXANDSLVFFY')
 
 # ─── Generation State ──────────────────────────────────────────────────────
 generation_sessions = {}  # session_id -> {status, accounts, ...}
