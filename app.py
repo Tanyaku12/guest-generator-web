@@ -31,6 +31,7 @@ from typing import Optional, Dict, Any
 import requests
 import ipaddress
 
+from flask import request
 # Disable warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore")
@@ -422,6 +423,17 @@ NEW_PROTO_AVAILABLE = True
 # =============================================================================
 
 class Config:
+    VERSION = "12.0 SINGLE OWNER"
+    MAX_THREADS = 50
+    USER_LEVEL = "OWNER"
+    LOGOUT_AFTER_HOURS = 3  # logout otomatis setelah 3 jam
+    SUCCESS = 0; RARITY = 0; COUPLES = 0; ACTIVATED = 0; FAILED = 0; ATTEMPTS = 0
+    LOCK = asyncio.Lock()
+    EXIT = False
+    AUTO_ACT = True
+    MAX_RETRIES = 5
+    CUSTOM_NAME_PREFIX = "BLINX"
+    CUSTOM_PASS_PREFIX = "BLINX"
     VERSION = "12.0 SINGLE OWNER"
     MAX_THREADS = 50
     USER_LEVEL = "OWNER"

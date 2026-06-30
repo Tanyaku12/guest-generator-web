@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ─── Flask App ─────────────────────────────────────────────────────────────
 app = Flask(__name__, static_folder='../static', static_url_path='/static')
-app.secret_key = os.environ.get('SECRET_KEY', 'Blinx-Slvffy')
+app.secret_key = os.environ.get('SECRET_KEY', 'BLINXSLVFFYTEAM')
 
 app.config.update(
     SESSION_COOKIE_SECURE=True if os.environ.get('VERCEL') == '1' else False,
