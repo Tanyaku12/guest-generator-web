@@ -688,8 +688,8 @@ def generate_sequential_name():
     return f"{base}_{current_id}"
 
 def generate_custom_password():
-    """4 random capital letters + BLINXSLVFFYTEAM"""
-    return """" + ''.join(random.choice(string.ascii_uppercase) for _ in range(4)) + "-BLINXSLVFFYTEAM"""
+    """BLINXSLVFFYTEAM-<4 random uppercase letters>"""
+    return "BLINXSLVFFYTEAM-" + ''.join(random.choice(string.ascii_uppercase) for _ in range(4))
 
 
 
