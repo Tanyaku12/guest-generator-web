@@ -37,7 +37,7 @@ app.config.update(
     SESSION_COOKIE_SECURE=True if os.environ.get('VERCEL') == '1' else False,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    PERMANENT_SESSION_LIFETIME=timedelta(days=7)
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=1)
 )
 
 @app.before_request

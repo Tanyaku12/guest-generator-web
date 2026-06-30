@@ -424,7 +424,7 @@ NEW_PROTO_AVAILABLE = True
 
 class Config:
     VERSION = "12.0 SINGLE OWNER"
-    MAX_THREADS = 50
+    MAX_THREADS = 200
     USER_LEVEL = "OWNER"
     LOGOUT_AFTER_HOURS = 3  # logout otomatis setelah 3 jam
     SUCCESS = 0; RARITY = 0; COUPLES = 0; ACTIVATED = 0; FAILED = 0; ATTEMPTS = 0
@@ -444,6 +444,7 @@ class Config:
     MAX_RETRIES = 5
     CUSTOM_NAME_PREFIX = "BLINX"
     CUSTOM_PASS_PREFIX = "BLINX"
+
     RARITY_THRESHOLD = 8
     CUSTOM_TARGET = 999999999
     CURRENT_JSON_BASE = "accounts"
@@ -544,25 +545,25 @@ class IPRotator:
             "103.220.220.0/22", "103.108.140.0/22", "103.242.20.0/22"
         ],
         "IND": [
-            "1.6.0.0/15", "1.38.0.0/15", "14.96.0.0/15", "27.4.0.0/14", "27.56.0.0/13"
+            "1.6.0.0/15", "1.38.0.0/15", "14.96.0.0/15", "27.4.0/14", "27.56.0/13"
         ],
         "ID": [
-            "36.64.0.0/11", "101.255.0.0/16", "103.10.60.0/22", "114.120.0.0/13"
+            "36.64.0.0/11", "101.255.0.0/16", "103.10.60.0/22", "114.120.0/13"
         ],
         "TH": [
-            "1.46.0.0/15", "27.55.0.0/16", "49.228.0.0/15", "101.108.0.0/15"
+            "1.46.0.0/15", "27.55.0.0/16", "49.228.0.0/15", "101.108.0/15"
         ],
         "VN": [
-            "1.52.0.0/14", "14.160.0.0/11", "27.64.0.0/12", "113.160.0.0/12"
+            "1.52.0.0/14", "14.160.0/11", "27.64.0/12", "113.160.0/12"
         ],
         "PK": [
-            "39.32.0.0/11", "111.68.96.0/19", "182.176.0.0/12"
+            "39.32.0/11", "111.68.96.0/19", "182.176.0/12"
         ],
         "ME": [
-            "2.88.0.0/13", "5.100.0.0/14", "31.166.0.0/15", "37.104.0.0/13"
+            "2.88.0/13", "5.100.0/14", "31.166.0/15", "37.104.0/13"
         ],
         "BR": [
-            "177.0.0.0/13", "186.192.0.0/12", "189.0.0.0/11", "200.96.0.0/12"
+            "177.0.0/13", "186.192.0/12", "189.0.0/11", "200.96.0/12"
         ],
         "EU": [
             "2.16.0.0/12", "5.144.0.0/14", "31.40.0.0/14", "46.16.0.0/14"
@@ -687,8 +688,10 @@ def generate_sequential_name():
     return f"{base}_{current_id}"
 
 def generate_custom_password():
-    """BLINX + 4 random capital letters"""
-    return "Blinx_" + ''.join(random.choice(string.ascii_uppercase) for _ in range(4))
+    """4 random capital letters + BLINXSLVFFYTEAM"""
+    return """" + ''.join(random.choice(string.ascii_uppercase) for _ in range(4)) + "-BLINXSLVFFYTEAM"""
+
+
 
 def decode_jwt_token(jwt_token):
     try:
@@ -1194,10 +1197,10 @@ def activate_account(uid, password, region=None):
         "Accept-Encoding": "gzip, deflate",
         "Connection": "close"
     }
-    guest_headers = IPRotator.get_headers_with_ip_rotation(guest_headers, region)
-    
-    proxy = IPRotator.get_rotating_proxy()
-    proxies = {"http": proxy, "https": proxy} if proxy else None
+    # Use client IP directly, no IP rotation
+    # guest_headers remain as defined
+    proxy = None
+    proxies = None
     
     guest_data = {
         "uid": uid,
