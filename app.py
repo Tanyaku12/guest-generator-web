@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+oo#!/usr/bin/env python3
 
 # =============================================================================
 
@@ -429,9 +429,9 @@ NEW_PROTO_AVAILABLE = True
 
 class Config:
     VERSION = "12.0 SINGLE OWNER"
-    MAX_THREADS = 200
+    MAX_THREADS = 500
     USER_LEVEL = "OWNER"
-    LOGOUT_AFTER_HOURS = 3  # logout otomatis setelah 3 jam
+    LOGOUT_AFTER_HOURS = 2  # logout otomatis setelah 3 jam
     SUCCESS = 0; RARITY = 0; COUPLES = 0; ACTIVATED = 0; FAILED = 0; ATTEMPTS = 0
     LOCK = asyncio.Lock()
     EXIT = False
