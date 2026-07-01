@@ -5,3 +5,4 @@ pycryptodome>=3.19.0
 protobuf>=4.25.0
 urllib3>=2.0.0
 gunicorn>=21.2.0
+python-dotenv>=1.0.0

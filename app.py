@@ -12,6 +12,11 @@ import json
 import time
 from datetime import datetime
 import os
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed, rely on system env vars
 import sys
 import base64
 import threading
@@ -497,8 +502,8 @@ class Config:
                 'get_login_data_url': 'https://clientbp.ggpolarbear.com/GetLoginData',
                 'client_host': 'clientbp.ggpolarbear.com'},
     }
-    HEX_KEY = "2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3"
-    API_KEY  = bytes.fromhex(HEX_KEY)
+    HEX_KEY = os.environ.get("HEX_KEY", "")
+    API_KEY  = bytes.fromhex(HEX_KEY) if HEX_KEY else b""
     REGISTER_URL      = "https://100067.connect.garena.com/api/v2/oauth/guest:register"
     TOKEN_URL         = "https://100067.connect.garena.com/api/v2/oauth/guest/token:grant"
     MAJOR_REGISTER_URL = "https://loginbp.ggpolarbear.com/MajorRegister"
@@ -728,8 +733,8 @@ def encrypt_api(plain_text):
     if not AES_AVAILABLE:
         return plain_text
     Z = bytes.fromhex(plain_text)
-    key = bytes([89,103,38,116,99,37,68,69,117,104,54,37,90,99,94,56])
-    iv  = bytes([54,111,121,90,68,114,50,50,69,51,121,99,104,106,77,37])
+    key = bytes.fromhex(os.environ.get("AES_KEY", ""))
+    iv  = bytes.fromhex(os.environ.get("AES_IV", ""))
     cipher = AES.new(key, AES.MODE_CBC, iv)
     return cipher.encrypt(pad(Z, AES.block_size)).hex()
 
@@ -771,8 +776,8 @@ def E_AEs(Pc):
     if not AES_AVAILABLE:
         return bytes.fromhex(Pc)
     Z = bytes.fromhex(Pc)
-    key = bytes([89,103,38,116,99,37,68,69,117,104,54,37,90,99,94,56])
-    iv  = bytes([54,111,121,90,68,114,50,50,69,51,121,99,104,106,77,37])
+    key = bytes.fromhex(os.environ.get("AES_KEY", ""))
+    iv  = bytes.fromhex(os.environ.get("AES_IV", ""))
     K = AES.new(key, AES.MODE_CBC, iv)
     return K.encrypt(pad(Z, AES.block_size))
 
@@ -1088,8 +1093,8 @@ def build_safe_major_login_payload(open_id, access_token):
             100: "4"
         }
         proto_bytes = create_proto_sync(fields)
-        key = bytes([89, 103, 38, 116, 99, 37, 68, 69, 117, 104, 54, 37, 90, 99, 94, 56])
-        iv  = bytes([54, 111, 121, 90, 68, 114, 50, 50, 69, 51, 121, 99, 104, 106, 77, 37])
+        key = bytes.fromhex(os.environ.get("AES_KEY", ""))
+        iv  = bytes.fromhex(os.environ.get("AES_IV", ""))
         cipher = AES.new(key, AES.MODE_CBC, iv)
         encrypted = cipher.encrypt(pad(proto_bytes, AES.block_size))
         return encrypted
@@ -1153,8 +1158,8 @@ def build_get_login_data_payload(jwt_token, access_token):
         major_login.primary_platform_type = "4"
         
         proto_bytes = major_login.SerializeToString()
-        key = bytes([89, 103, 38, 116, 99, 37, 68, 69, 117, 104, 54, 37, 90, 99, 94, 56])
-        iv  = bytes([54, 111, 121, 90, 68, 114, 50, 50, 69, 51, 121, 99, 104, 106, 77, 37])
+        key = bytes.fromhex(os.environ.get("AES_KEY", ""))
+        iv  = bytes.fromhex(os.environ.get("AES_IV", ""))
         cipher = AES.new(key, AES.MODE_CBC, iv)
         encrypted = cipher.encrypt(pad(proto_bytes, AES.block_size))
         return encrypted
