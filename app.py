@@ -502,7 +502,7 @@ class Config:
                 'get_login_data_url': 'https://clientbp.ggpolarbear.com/GetLoginData',
                 'client_host': 'clientbp.ggpolarbear.com'},
     }
-    HEX_KEY = os.environ.get("HEX_KEY", "")
+    HEX_KEY = os.environ.get("HEX_KEY") or "2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3"
     API_KEY  = bytes.fromhex(HEX_KEY) if HEX_KEY else b""
     REGISTER_URL      = "https://100067.connect.garena.com/api/v2/oauth/guest:register"
     TOKEN_URL         = "https://100067.connect.garena.com/api/v2/oauth/guest/token:grant"
@@ -733,8 +733,8 @@ def encrypt_api(plain_text):
     if not AES_AVAILABLE:
         return plain_text
     Z = bytes.fromhex(plain_text)
-    key = bytes.fromhex(os.environ.get("AES_KEY", ""))
-    iv  = bytes.fromhex(os.environ.get("AES_IV", ""))
+    key = bytes.fromhex(os.environ.get("AES_KEY") or "5967267463254445756836255a635e38")
+    iv  = bytes.fromhex(os.environ.get("AES_IV") or "366f795a4472323245337963686a4d25")
     cipher = AES.new(key, AES.MODE_CBC, iv)
     return cipher.encrypt(pad(Z, AES.block_size)).hex()
 
@@ -776,8 +776,8 @@ def E_AEs(Pc):
     if not AES_AVAILABLE:
         return bytes.fromhex(Pc)
     Z = bytes.fromhex(Pc)
-    key = bytes.fromhex(os.environ.get("AES_KEY", ""))
-    iv  = bytes.fromhex(os.environ.get("AES_IV", ""))
+    key = bytes.fromhex(os.environ.get("AES_KEY") or "5967267463254445756836255a635e38")
+    iv  = bytes.fromhex(os.environ.get("AES_IV") or "366f795a4472323245337963686a4d25")
     K = AES.new(key, AES.MODE_CBC, iv)
     return K.encrypt(pad(Z, AES.block_size))
 
@@ -1093,8 +1093,8 @@ def build_safe_major_login_payload(open_id, access_token):
             100: "4"
         }
         proto_bytes = create_proto_sync(fields)
-        key = bytes.fromhex(os.environ.get("AES_KEY", ""))
-        iv  = bytes.fromhex(os.environ.get("AES_IV", ""))
+        key = bytes.fromhex(os.environ.get("AES_KEY") or "5967267463254445756836255a635e38")
+        iv  = bytes.fromhex(os.environ.get("AES_IV") or "366f795a4472323245337963686a4d25")
         cipher = AES.new(key, AES.MODE_CBC, iv)
         encrypted = cipher.encrypt(pad(proto_bytes, AES.block_size))
         return encrypted
@@ -1158,8 +1158,8 @@ def build_get_login_data_payload(jwt_token, access_token):
         major_login.primary_platform_type = "4"
         
         proto_bytes = major_login.SerializeToString()
-        key = bytes.fromhex(os.environ.get("AES_KEY", ""))
-        iv  = bytes.fromhex(os.environ.get("AES_IV", ""))
+        key = bytes.fromhex(os.environ.get("AES_KEY") or "5967267463254445756836255a635e38")
+        iv  = bytes.fromhex(os.environ.get("AES_IV") or "366f795a4472323245337963686a4d25")
         cipher = AES.new(key, AES.MODE_CBC, iv)
         encrypted = cipher.encrypt(pad(proto_bytes, AES.block_size))
         return encrypted

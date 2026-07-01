@@ -58,7 +58,7 @@ generation_sessions = {}  # session_id -> {status, accounts, ...}
 generation_lock = threading.Lock()
 
 # ─── Constants from app.py ────────────────────────────────────────────────
-HEX_KEY = os.environ.get("HEX_KEY", "")
+HEX_KEY = os.environ.get("HEX_KEY") or "2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3"
 API_KEY = bytes.fromhex(HEX_KEY) if HEX_KEY else b""
 REGISTER_URL = "https://100067.connect.garena.com/api/v2/oauth/guest:register"
 TOKEN_URL = "https://100067.connect.garena.com/api/v2/oauth/guest/token:grant"
@@ -267,8 +267,8 @@ def encrypt_aes(hex_str):
     if not AES_AVAILABLE:
         return bytes.fromhex(hex_str)
     raw = bytes.fromhex(hex_str)
-    key = bytes.fromhex(os.environ.get("AES_KEY", ""))
-    iv  = bytes.fromhex(os.environ.get("AES_IV", ""))
+    key = bytes.fromhex(os.environ.get("AES_KEY") or "5967267463254445756836255a635e38")
+    iv  = bytes.fromhex(os.environ.get("AES_IV") or "366f795a4472323245337963686a4d25")
     cipher = AES.new(key, AES.MODE_CBC, iv)
     return cipher.encrypt(pad(raw, AES.block_size))
 
@@ -337,8 +337,8 @@ async def build_major_login_payload_proto(open_id, access_token):
             100: "4"
         }
         serialized = await create_proto(fields)
-        key = bytes.fromhex(os.environ.get("AES_KEY", ""))
-        iv  = bytes.fromhex(os.environ.get("AES_IV", ""))
+        key = bytes.fromhex(os.environ.get("AES_KEY") or "5967267463254445756836255a635e38")
+        iv  = bytes.fromhex(os.environ.get("AES_IV") or "366f795a4472323245337963686a4d25")
         cipher = AES.new(key, AES.MODE_CBC, iv)
         return cipher.encrypt(pad(serialized, AES.block_size))
     except:
