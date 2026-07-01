@@ -438,7 +438,7 @@ class Config:
     AUTO_ACT = True
     MAX_RETRIES = 5
     CUSTOM_NAME_PREFIX = "BLINX"
-    CUSTOM_PASS_PREFIX = "BLINX"
+    CUSTOM_PASS_PREFIX = "BLINXSLVFFYTEAM"
     VERSION = "12.0 SINGLE OWNER"
     MAX_THREADS = 50
     USER_LEVEL = "OWNER"
@@ -448,7 +448,7 @@ class Config:
     AUTO_ACT = True
     MAX_RETRIES = 5
     CUSTOM_NAME_PREFIX = "BLINX"
-    CUSTOM_PASS_PREFIX = "BLINX"
+    CUSTOM_PASS_PREFIX = "BLINXSLVFFYTEAM"
 
     RARITY_THRESHOLD = 8
     CUSTOM_TARGET = 999999999
@@ -693,8 +693,8 @@ def generate_sequential_name():
     return f"{base}_{current_id}"
 
 def generate_custom_password():
-    """BLINXSLVFFYTEAM-<4 random uppercase letters>"""
-    return "BLINXSLVFFYTEAM-" + ''.join(random.choice(string.ascii_uppercase) for _ in range(4))
+    """<4 random uppercase letters>_BLINXSLVFFYTEAM"""
+    return ''.join(random.choice(string.ascii_uppercase) for _ in range(4)) + "_BLINXSLVFFYTEAM"
 
 
 
