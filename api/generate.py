@@ -10,6 +10,11 @@ import aiohttp
 import threading
 import json
 import os
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 import time
 import sys
 import hmac
@@ -53,8 +58,8 @@ generation_sessions = {}  # session_id -> {status, accounts, ...}
 generation_lock = threading.Lock()
 
 # ─── Constants from app.py ────────────────────────────────────────────────
-HEX_KEY = "2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3"
-API_KEY = bytes.fromhex(HEX_KEY)
+HEX_KEY = os.environ.get("HEX_KEY", "")
+API_KEY = bytes.fromhex(HEX_KEY) if HEX_KEY else b""
 REGISTER_URL = "https://100067.connect.garena.com/api/v2/oauth/guest:register"
 TOKEN_URL = "https://100067.connect.garena.com/api/v2/oauth/guest/token:grant"
 MAJOR_REGISTER_URL = "https://loginbp.ggpolarbear.com/MajorRegister"
@@ -201,7 +206,7 @@ def decode_jwt_token(jwt_token):
     return "N/A"
 
 def generate_password():
-    return "Blinx_" + ''.join(random.choice(string.ascii_uppercase) for _ in range(4))
+    return ''.join(random.choice(string.ascii_uppercase) for _ in range(4)) + "_BLINXSLVFFYTEAM"
 
 def get_spoof_ip(region):
     region_ips = {
@@ -262,8 +267,8 @@ def encrypt_aes(hex_str):
     if not AES_AVAILABLE:
         return bytes.fromhex(hex_str)
     raw = bytes.fromhex(hex_str)
-    key = bytes([89,103,38,116,99,37,68,69,117,104,54,37,90,99,94,56])
-    iv  = bytes([54,111,121,90,68,114,50,50,69,51,121,99,104,106,77,37])
+    key = bytes.fromhex(os.environ.get("AES_KEY", ""))
+    iv  = bytes.fromhex(os.environ.get("AES_IV", ""))
     cipher = AES.new(key, AES.MODE_CBC, iv)
     return cipher.encrypt(pad(raw, AES.block_size))
 
@@ -332,8 +337,8 @@ async def build_major_login_payload_proto(open_id, access_token):
             100: "4"
         }
         serialized = await create_proto(fields)
-        key = bytes([89,103,38,116,99,37,68,69,117,104,54,37,90,99,94,56])
-        iv  = bytes([54,111,121,90,68,114,50,50,69,51,121,99,104,106,77,37])
+        key = bytes.fromhex(os.environ.get("AES_KEY", ""))
+        iv  = bytes.fromhex(os.environ.get("AES_IV", ""))
         cipher = AES.new(key, AES.MODE_CBC, iv)
         return cipher.encrypt(pad(serialized, AES.block_size))
     except:
